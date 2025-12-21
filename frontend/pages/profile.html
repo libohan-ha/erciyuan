@@ -1,0 +1,173 @@
+﻿<div class="min-h-screen bg-gray-50 py-8">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="mb-8">
+      <h2 class="text-3xl font-bold text-gray-900">个人中心</h2>
+      <p class="text-gray-600 mt-2">管理个人信息和收藏相册</p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div class="lg:col-span-1 space-y-6">
+        <section class="bg-white rounded-lg shadow p-6">
+          <div class="text-center">
+            <div class="relative inline-block">
+              <div id="avatar-container" class="w-32 h-32 bg-gray-200 rounded-full mx-auto flex items-center justify-center overflow-hidden">
+                <img id="avatar-image" src="" alt="头像" class="w-full h-full object-cover hidden" />
+                <i id="avatar-placeholder" class="material-icons text-4xl text-gray-400">person</i>
+              </div>
+              <label for="avatar-upload" class="absolute bottom-0 right-0 bg-primary text-white rounded-full p-2 cursor-pointer hover:bg-primary-dark">
+                <i class="material-icons" style="font-size: 18px;">camera_alt</i>
+              </label>
+              <input type="file" id="avatar-upload" accept="image/*" class="hidden" />
+            </div>
+
+            <h3 id="username-display" class="mt-4 text-xl font-semibold text-gray-900"></h3>
+            <p id="user-date" class="text-sm text-gray-500"></p>
+          </div>
+
+          <div class="mt-6 grid grid-cols-3 gap-4 text-center">
+            <div>
+              <div id="total-images-count" class="text-2xl font-bold text-primary">0</div>
+              <div class="text-xs text-gray-500">图片</div>
+            </div>
+            <div>
+              <div id="total-albums-count" class="text-2xl font-bold text-secondary">0</div>
+              <div class="text-xs text-gray-500">相册</div>
+            </div>
+            <div>
+              <div id="total-tags-count" class="text-2xl font-bold text-green-500">0</div>
+              <div class="text-xs text-gray-500">标签</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="bg-white rounded-lg shadow p-6">
+          <h4 class="text-lg font-semibold mb-4">快捷操作</h4>
+          <div class="space-y-2">
+            <a href="#/upload" class="block w-full text-center px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark">
+              <i class="material-icons align-middle mr-2" style="font-size: 18px;">cloud_upload</i>
+              上传图片
+            </a>
+            <a href="#/" class="block w-full text-center px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">
+              <i class="material-icons align-middle mr-2" style="font-size: 18px;">photo_library</i>
+              回到画廊
+            </a>
+          </div>
+        </section>
+      </div>
+
+      <div class="lg:col-span-2">
+        <section class="bg-white rounded-lg shadow overflow-hidden">
+          <nav class="border-b border-gray-200 flex">
+            <button class="tab-btn active px-6 py-3 border-b-2 border-primary text-primary font-medium" data-tab="basic-info">基本信息</button>
+            <button class="tab-btn px-6 py-3 border-b-2 border-transparent text-gray-500 hover:text-gray-700 font-medium" data-tab="password">修改密码</button>
+            <button class="tab-btn px-6 py-3 border-b-2 border-transparent text-gray-500 hover:text-gray-700 font-medium" data-tab="albums">我的相册</button>
+          </nav>
+
+          <div class="p-6 space-y-6">
+            <div id="basic-info-tab" class="tab-content space-y-4">
+              <h4 class="text-lg font-semibold">基本信息</h4>
+              <form id="basic-info-form" class="space-y-4">
+                <div>
+                  <label for="username-input" class="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+                  <input type="text" id="username-input" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary" />
+                </div>
+                <button type="submit" class="px-4 py-2 bg-primary text白色 rounded-lg hover:bg-primary-dark">保存修改</button>
+              </form>
+            </div>
+
+            <div id="password-tab" class="tab-content hidden space-y-4">
+              <h4 class="text-lg font-semibold">修改密码</h4>
+              <form id="password-form" class="space-y-4">
+                <div>
+                  <label for="current-password" class="block text-sm font-medium text-gray-700 mb-1">当前密码</label>
+                  <input type="password" id="current-password" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary" />
+                </div>
+                <div>
+                  <label for="new-password" class="block text-sm font-medium text-gray-700 mb-1">新密码</label>
+                  <input type="password" id="new-password" required minlength="6" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary" />
+                </div>
+                <div>
+                  <label for="confirm-password" class="block text-sm font-medium text-gray-700 mb-1">确认新密码</label>
+                  <input type="password" id="confirm-password" required minlength="6" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary" />
+                </div>
+                <button type="submit" class="px-4 py-2 bg-primary text白色 rounded-lg hover:bg-primary-dark">确认修改</button>
+              </form>
+            </div>
+
+            <div id="albums-tab" class="tab-content hidden space-y-4">
+              <div class="flex items-center justify-between">
+                <h4 class="text-lg font-semibold">我的相册</h4>
+                <button id="create-album-btn" class="px-4 py-2 bg-secondary text白色 rounded-lg hover:bg-secondary-dark text-sm">
+                  <i class="material-icons align-middle mr-1" style="font-size: 18px;">add</i>
+                  新建相册
+                </button>
+              </div>
+              <div id="albums-list" class="space-y-4"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 新建/编辑相册 -->
+<div id="album-editor-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-lg p-6 max-w-lg w-full mx-4 space-y-4">
+    <h3 id="album-editor-title" class="text-lg font-semibold">新建相册</h3>
+    <form id="album-editor-form" class="space-y-4">
+      <div>
+        <label for="album-name-input" class="block text-sm font-medium text-gray-700 mb-1">相册名称 <span class="text-red-500">*</span></label>
+        <input type="text" id="album-name-input" required maxlength="50" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary" />
+      </div>
+      <div>
+        <label for="album-description-input" class="block text-sm font-medium text-gray-700 mb-1">相册描述</label>
+        <textarea id="album-description-input" rows="3" maxlength="200" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"></textarea>
+      </div>
+      <div class="flex items-center gap-4">
+        <div id="album-cover-preview" class="w-24 h-24 bg-gray-100 rounded-lg border border-dashed border-gray-300 flex items-center justify-center overflow-hidden">
+          <img id="album-cover-image" src="" alt="封面预览" class="w-full h-full object-cover hidden" />
+          <span id="album-cover-placeholder" class="text-xs text-gray-400">未设置封面</span>
+        </div>
+        <div class="flex flex-col gap-2">
+          <button type="button" id="album-editor-set-cover" class="px-3 py-1 border border-gray-300 text-sm rounded-lg hover:bg-gray-50">选择封面</button>
+          <button type="button" id="album-editor-clear-cover" class="px-3 py-1 text-sm text-gray-500 hover:text-gray-700">清除封面</button>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-4 border-t border-gray-200">
+        <button type="button" id="album-editor-cancel" class="px-4 py-2 text-gray-600 hover:text-gray-800">取消</button>
+        <button type="submit" class="px-4 py-2 bg-primary text白色 rounded-lg hover:bg-primary-dark">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 删除相册确认 -->
+<div id="album-delete-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+    <div class="text-center space-y-4">
+      <i class="material-icons text-5xl text-red-500">warning</i>
+      <h3 class="text-lg font-semibold">确认删除相册？</h3>
+      <p class="text-gray-600">删除相册不会删除图片，图片将被移出该相册。</p>
+    </div>
+    <div class="flex justify-center gap-4 mt-6">
+      <button id="album-delete-cancel" class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">取消</button>
+      <button id="album-delete-confirm" class="px-4 py-2 bg-red-500 text白色 rounded-lg hover:bg-red-600">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- 选择封面 -->
+<div id="album-cover-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-lg p-6 max-w-3xl w-full mx-4 space-y-4">
+    <div class="flex items-center justify-between">
+      <h3 class="text-lg font-semibold">选择封面图片</h3>
+      <button id="album-cover-cancel" class="text-gray-500 hover:text-gray-700">关闭</button>
+    </div>
+    <p id="album-cover-empty" class="text-sm text-gray-500 hidden">这个相册还没有图片，先去上传吧。</p>
+    <div id="album-cover-list" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
+    <div class="flex justify-end pt-4 border-t border-gray-200">
+      <button id="album-cover-confirm" class="px-4 py-2 bg-primary text白色 rounded-lg hover:bg-primary-dark">确认封面</button>
+    </div>
+  </div>
+</div>

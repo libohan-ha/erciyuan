@@ -1,0 +1,73 @@
+﻿<!-- 注册页面模板 -->
+<div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-400 via-purple-300 to-pink-300">
+  <div class="max-w-2xl w-full bg-white rounded-3xl shadow-2xl overflow-hidden grid md:grid-cols-2">
+    <div class="hidden md:flex flex-col justify-center items-center bg-gradient-to-br from-primary to-secondary text-white p-10">
+      <h2 class="text-3xl font-bold mb-4">加入我们的收藏馆</h2>
+      <p class="text-sm text-white/80 mb-8 text-center">
+        注册账户后即可管理属于你的二次元图库，创建相册、整理标签，随时随地同步云端。
+      </p>
+      <div class="space-y-3 text-sm">
+        <div class="flex items-center"><span class="material-icons mr-2 text-white/80">check_circle</span> 云端安全备份</div>
+        <div class="flex items-center"><span class="material-icons mr-2 text-white/80">check_circle</span> 个性化标签与相册</div>
+        <div class="flex items-center"><span class="material-icons mr-2 text-white/80">check_circle</span> 多设备同步浏览</div>
+      </div>
+    </div>
+
+    <div class="p-10">
+      <div class="text-center mb-8">
+        <h2 class="text-3xl font-extrabold text-gray-900">创建新账号</h2>
+        <p class="mt-2 text-sm text-gray-600">请输入信息完成注册</p>
+      </div>
+
+      <form id="register-form" class="space-y-6">
+        <div class="space-y-4">
+          <div>
+            <label for="username" class="block text-sm font-medium text-gray-700">用户名</label>
+            <div class="mt-1">
+              <input id="username" name="username" type="text" required
+                     class="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-400 text-gray-900 rounded-lg focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
+                     placeholder="请输入用户名">
+            </div>
+          </div>
+
+          <div>
+            <label for="password" class="block text-sm font-medium text-gray-700">密码</label>
+            <div class="mt-1 relative">
+              <input id="password" name="password" type="password" required
+                     class="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-400 text-gray-900 rounded-lg focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
+                     placeholder="请输入密码">
+            </div>
+            <div id="password-strength" class="mt-2 text-xs text-gray-500"></div>
+          </div>
+
+          <div>
+            <label for="confirmPassword" class="block text-sm font-medium text-gray-700">确认密码</label>
+            <div class="mt-1">
+              <input id="confirmPassword" name="confirmPassword" type="password" required
+                     class="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-400 text-gray-900 rounded-lg focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
+                     placeholder="请再次输入密码">
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <button type="submit"
+                  class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-primary hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+            <span class="absolute left-0 inset-y-0 flex items-center pl-3">
+              <i class="material-icons text-gray-200 group-hover:text-white" style="font-size: 20px;">person_add</i>
+            </span>
+            注册
+          </button>
+        </div>
+
+        <div class="text-center">
+          <span class="text-sm text-gray-600">
+            已有账号？
+            <a href="#/login" class="font-medium text-primary hover:text-primary-dark">返回登录</a>
+          </span>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
