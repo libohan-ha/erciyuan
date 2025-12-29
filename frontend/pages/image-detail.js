@@ -1,4 +1,4 @@
-﻿import { DOMHelper, FormHelper } from '../utils/utils.js';
+﻿import { DOMHelper } from '../utils/utils.js';
 
 export default class ImageDetailPage {
   constructor() {
@@ -54,6 +54,11 @@ export default class ImageDetailPage {
     this.dom.deleteModal = DOMHelper.find('#delete-confirm-modal');
     this.dom.deleteCancel = DOMHelper.find('#cancel-delete');
     this.dom.deleteConfirm = DOMHelper.find('#confirm-delete');
+
+    // Lightbox elements
+    this.dom.lightbox = DOMHelper.find('#image-lightbox');
+    this.dom.lightboxImage = DOMHelper.find('#lightbox-image');
+    this.dom.lightboxClose = DOMHelper.find('#lightbox-close');
   }
 
   bindBaseEvents() {
@@ -108,6 +113,27 @@ export default class ImageDetailPage {
     if (this.dom.deleteConfirm) {
       DOMHelper.on(this.dom.deleteConfirm, 'click', () => this.deleteImage());
     }
+
+    // Lightbox events
+    if (this.dom.image) {
+      DOMHelper.on(this.dom.image, 'click', () => this.openLightbox());
+    }
+
+    if (this.dom.lightbox) {
+      DOMHelper.on(this.dom.lightbox, 'click', (e) => {
+        if (e.target === this.dom.lightbox || e.target === this.dom.lightboxClose || e.target.closest('#lightbox-close')) {
+          this.closeLightbox();
+        }
+      });
+    }
+
+    // ESC key to close lightbox
+    this.escHandler = (e) => {
+      if (e.key === 'Escape' && this.dom.lightbox && !this.dom.lightbox.classList.contains('hidden')) {
+        this.closeLightbox();
+      }
+    };
+    document.addEventListener('keydown', this.escHandler);
   }
 
   async loadImageDetail() {
@@ -181,8 +207,10 @@ export default class ImageDetailPage {
     }
 
     if (this.dom.albumName) {
-      if (albumId && albumId.name) {
-        this.dom.albumName.textContent = albumId.name;
+      // 后端返回 album 对象，兼容旧的 albumId.name 格式
+      const albumName = this.image.album?.name || albumId?.name;
+      if (albumName) {
+        this.dom.albumName.textContent = albumName;
       } else {
         this.dom.albumName.textContent = '未分类';
       }
@@ -194,7 +222,8 @@ export default class ImageDetailPage {
   populateAlbumSelect() {
     if (!this.dom.editAlbumSelect) return;
 
-    const currentValue = this.image?.albumId?._id || this.image?.albumId || '';
+    // 兼容 PostgreSQL (album.id) 和 MongoDB (albumId._id / albumId)
+    const currentValue = this.image?.album?.id || this.image?.albumId?._id || this.image?.albumId || '';
     this.dom.editAlbumSelect.innerHTML = '<option value="">未分类</option>';
 
     this.albums.forEach((album) => {
@@ -211,7 +240,7 @@ export default class ImageDetailPage {
   prefillEditForm() {
     if (!this.image) return;
 
-    const { title, description, tags, albumId } = this.image;
+    const { title, description, tags, album, albumId } = this.image;
 
     if (this.dom.editTitle) {
       this.dom.editTitle.value = title || '';
@@ -225,7 +254,8 @@ export default class ImageDetailPage {
     this.renderEditTags();
 
     if (this.dom.editAlbumSelect) {
-      const value = albumId?._id || albumId || '';
+      // 兼容 PostgreSQL (album.id) 和 MongoDB (albumId._id / albumId)
+      const value = album?.id || albumId?._id || albumId || '';
       this.dom.editAlbumSelect.value = value;
     }
   }
@@ -363,5 +393,21 @@ export default class ImageDetailPage {
     if (this.dom.loading) {
       this.dom.loading.innerHTML = '<span class="text-red-500">加载失败，请返回重试。</span>';
     }
+  }
+
+  openLightbox() {
+    if (!this.image?.url || !this.dom.lightbox || !this.dom.lightboxImage) return;
+    this.dom.lightboxImage.src = this.image.url;
+    this.dom.lightboxImage.alt = this.image.title || '';
+    this.dom.lightbox.classList.remove('hidden');
+    this.dom.lightbox.classList.add('flex');
+    document.body.style.overflow = 'hidden';
+  }
+
+  closeLightbox() {
+    if (!this.dom.lightbox) return;
+    this.dom.lightbox.classList.add('hidden');
+    this.dom.lightbox.classList.remove('flex');
+    document.body.style.overflow = '';
   }
 }

@@ -20,7 +20,7 @@
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div class="bg-gray-100 p-8 flex items-center justify-center">
             <div class="relative max-w-full">
-              <img id="detail-image" src="" alt="" class="max-w-full max-h-96 object-contain rounded-lg shadow-lg" />
+              <img id="detail-image" src="" alt="" class="max-w-full max-h-96 object-contain rounded-lg shadow-lg cursor-zoom-in hover:opacity-90 transition-opacity" title="点击放大查看" />
               <div class="absolute top-4 right-4 flex gap-2">
                 <button id="edit-image-btn" class="bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 shadow-lg" title="编辑">
                   <i class="material-icons" style="font-size: 20px;">edit</i>
@@ -141,4 +141,12 @@
       <button id="confirm-delete" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">确认删除</button>
     </div>
   </div>
+</div>
+
+<!-- 图片放大预览 Lightbox -->
+<div id="image-lightbox" class="fixed inset-0 bg-black bg-opacity-90 z-[60] hidden items-center justify-center cursor-zoom-out">
+  <button id="lightbox-close" class="absolute top-4 right-4 text-white hover:text-gray-300 z-10 p-2" title="关闭 (ESC)">
+    <i class="material-icons" style="font-size: 32px;">close</i>
+  </button>
+  <img id="lightbox-image" src="" alt="" class="max-w-[95vw] max-h-[95vh] object-contain select-none" />
 </div>

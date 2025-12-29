@@ -345,8 +345,9 @@ export default class GalleryPage {
   }
 
   openImageDetail(image) {
-    if (!image?._id) return;
-    sessionStorage.setItem('selected-image-id', image._id);
+    const imageId = image?.id || image?._id;
+    if (!imageId) return;
+    sessionStorage.setItem('selected-image-id', imageId);
     window.router.navigate('/image-detail');
   }
 

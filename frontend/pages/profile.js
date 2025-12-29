@@ -120,6 +120,31 @@ class ProfilePage {
         event.preventDefault();
         await this.updatePassword();
       });
+
+      // 密码显示/隐藏切换
+      const toggleButtons = this.dom.passwordForm.querySelectorAll('.toggle-password');
+      toggleButtons.forEach((btn) => {
+        DOMHelper.on(btn, 'click', () => {
+          const targetId = btn.dataset.target;
+          const input = document.getElementById(targetId);
+          if (!input) return;
+
+          const isPassword = input.type === 'password';
+          input.type = isPassword ? 'text' : 'password';
+
+          // 切换图标
+          const svg = btn.querySelector('.eye-icon');
+          if (svg) {
+            if (isPassword) {
+              // 显示密码 - 划掉的眼睛
+              svg.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"></path>';
+            } else {
+              // 隐藏密码 - 正常眼睛
+              svg.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>';
+            }
+          }
+        });
+      });
     }
 
     if (this.dom.avatarUpload) {
@@ -259,7 +284,8 @@ class ProfilePage {
   transformAlbum(album) {
     if (!album) return null;
 
-    const cover = album.coverImageId || {};
+    // 兼容 PostgreSQL (coverImage) 和 MongoDB (coverImageId)
+    const cover = album.coverImage || album.coverImageId || {};
     return {
       id: album.id || album._id,
       name: album.name || '未命名相册',
@@ -267,7 +293,7 @@ class ProfilePage {
       imageCount: album.imageCount ?? 0,
       createdAt: album.createdAt ? new Date(album.createdAt) : null,
       updatedAt: album.updatedAt ? new Date(album.updatedAt) : null,
-      coverImageId: cover._id || cover.id || cover || null,
+      coverImageId: cover.id || cover._id || cover || null,
       coverUrl: cover.url || null,
       coverTitle: cover.title || ''
     };
@@ -541,9 +567,10 @@ class ProfilePage {
 
     const fragment = document.createDocumentFragment();
     images.forEach((image) => {
+      const imageId = image.id || image._id;
       const button = DOMHelper.createElement('button', 'relative overflow-hidden rounded-lg border border-gray-200 hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary');
       button.type = 'button';
-      button.dataset.imageId = image._id;
+      button.dataset.imageId = imageId;
 
       const img = DOMHelper.createElement('img', 'w-full h-32 object-cover');
       img.src = image.url;
@@ -551,12 +578,12 @@ class ProfilePage {
       img.loading = 'lazy';
       button.appendChild(img);
 
-      if (selectedId && selectedId === image._id) {
+      if (selectedId && selectedId === imageId) {
         button.classList.add('border-primary', 'ring-2', 'ring-primary');
       }
 
       DOMHelper.on(button, 'click', () => {
-        this.coverPickerState.selectedId = image._id;
+        this.coverPickerState.selectedId = imageId;
         this.renderCoverPickerImages();
       });
 
@@ -580,7 +607,7 @@ class ProfilePage {
     }
 
     if (mode === 'editor') {
-      const image = images.find((img) => img._id === selectedId);
+      const image = images.find((img) => (img.id || img._id) === selectedId);
       this.albumEditorState.cover = {
         id: selectedId,
         url: image?.url || null,
