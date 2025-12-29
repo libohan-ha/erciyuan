@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
 
-const connectDB = require('../config/database');
+const prisma = require('../config/prisma');
 
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
@@ -13,7 +13,13 @@ const albumRoutes = require('./routes/albums');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-connectDB();
+// 测试数据库连接
+prisma.$connect()
+  .then(() => console.log('PostgreSQL Connected'))
+  .catch((err) => {
+    console.error('Database connection error:', err);
+    process.exit(1);
+  });
 
 app.use(cors());
 app.use(express.json());

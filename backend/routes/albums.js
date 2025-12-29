@@ -1,8 +1,6 @@
-﻿const express = require('express');
-const mongoose = require('mongoose');
+const express = require('express');
 const { auth } = require('../middleware/auth');
-const Album = require('../../models/Album');
-const Image = require('../../models/Image');
+const prisma = require('../../config/prisma');
 
 const router = express.Router();
 
@@ -13,73 +11,56 @@ const parsePagination = (query) => {
   return { page, limit };
 };
 
-const buildSortObject = (sortBy = 'createdAt', sortOrder = 'desc', allowedFields = ['createdAt']) => {
-  const defaultField = allowedFields[0] || 'createdAt';
-  const field = allowedFields.includes(sortBy) ? sortBy : defaultField;
-  const direction = sortOrder === 'asc' ? 1 : -1;
-  const sort = { [field]: direction };
-  if (field !== 'createdAt') {
-    sort.createdAt = -1;
-  }
-  return sort;
+// 验证 UUID 格式
+const isValidUUID = (str) => {
+  if (!str) return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
 };
 
+// GET /api/albums - 获取相册列表
 router.get('/', auth, async (req, res) => {
   try {
     const { search, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
     const { page, limit } = parsePagination(req.query);
 
-    const match = { ownerId: req.user._id };
+    const where = { ownerId: req.user.id };
     if (search && search.trim()) {
-      match.name = { $regex: search.trim(), $options: 'i' };
+      where.name = { contains: search.trim(), mode: 'insensitive' };
     }
 
-    const sort = buildSortObject(sortBy, sortOrder, ['createdAt', 'updatedAt', 'name', 'imageCount']);
-
-    const pipeline = [
-      { $match: match },
-      {
-        $lookup: {
-          from: 'images',
-          let: { albumId: '$_id', ownerId: '$ownerId' },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ['$albumId', '$$albumId'] },
-                    { $eq: ['$ownerId', '$$ownerId'] }
-                  ]
-                }
-              }
-            },
-            { $count: 'count' }
-          ],
-          as: 'imageStats'
-        }
-      },
-      {
-        $addFields: {
-          imageCount: { $ifNull: [{ $first: '$imageStats.count' }, 0] }
-        }
-      },
-      { $project: { imageStats: 0 } },
-      { $sort: sort },
-      { $skip: (page - 1) * limit },
-      { $limit: limit }
-    ];
+    const allowedSortFields = ['createdAt', 'updatedAt', 'name'];
+    const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    const orderBy = [{ [sortField]: sortOrder === 'asc' ? 'asc' : 'desc' }];
+    if (sortField !== 'createdAt') {
+      orderBy.push({ createdAt: 'desc' });
+    }
 
     const [albums, total] = await Promise.all([
-      Album.aggregate(pipeline),
-      Album.countDocuments(match)
+      prisma.album.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          coverImage: { select: { id: true, url: true, title: true } },
+          _count: { select: { images: true } }
+        }
+      }),
+      prisma.album.count({ where })
     ]);
 
-    await Album.populate(albums, { path: 'coverImageId', select: 'url title' });
+    // 格式化输出
+    const formattedAlbums = albums.map(album => ({
+      ...album,
+      imageCount: album._count.images,
+      _count: undefined
+    }));
 
     res.json({
       success: true,
       data: {
-        albums,
+        albums: formattedAlbums,
         pagination: {
           current: page,
           pages: Math.ceil(total / limit) || 1,
@@ -94,49 +75,54 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
+// GET /api/albums/:id/images - 获取相册内图片
 router.get('/:id/images', auth, async (req, res) => {
   try {
+    if (!isValidUUID(req.params.id)) {
+      return res.status(404).json({ success: false, message: 'Album not found' });
+    }
+
     const { sortBy = 'createdAt', sortOrder = 'desc', search } = req.query;
     const { page, limit } = parsePagination(req.query);
 
-    const album = await Album.findOne({
-      _id: req.params.id,
-      ownerId: req.user._id
+    const album = await prisma.album.findFirst({
+      where: { id: req.params.id, ownerId: req.user.id }
     });
 
     if (!album) {
       return res.status(404).json({ success: false, message: 'Album not found' });
     }
 
-    const query = {
-      albumId: album._id,
-      ownerId: req.user._id
-    };
+    const where = { albumId: album.id, ownerId: req.user.id };
 
     if (search && search.trim()) {
-      query.$or = [
-        { title: { $regex: search.trim(), $options: 'i' } },
-        { description: { $regex: search.trim(), $options: 'i' } },
-        { tags: { $in: [new RegExp(search.trim(), 'i')] } }
+      const keyword = search.trim();
+      where.OR = [
+        { title: { contains: keyword, mode: 'insensitive' } },
+        { description: { contains: keyword, mode: 'insensitive' } },
+        { tags: { has: keyword } }
       ];
     }
 
-    const sort = buildSortObject(sortBy, sortOrder, ['createdAt', 'updatedAt', 'title']);
+    const allowedSortFields = ['createdAt', 'updatedAt', 'title'];
+    const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    const orderBy = [{ [sortField]: sortOrder === 'asc' ? 'asc' : 'desc' }];
 
     const [images, total] = await Promise.all([
-      Image.find(query)
-        .sort(sort)
-        .limit(limit)
-        .skip((page - 1) * limit)
-        .lean(),
-      Image.countDocuments(query)
+      prisma.image.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit
+      }),
+      prisma.image.count({ where })
     ]);
 
     res.json({
       success: true,
       data: {
         album: {
-          id: album._id,
+          id: album.id,
           name: album.name,
           description: album.description,
           coverImageId: album.coverImageId
@@ -156,34 +142,32 @@ router.get('/:id/images', auth, async (req, res) => {
   }
 });
 
+// GET /api/albums/:id - 获取相册详情
 router.get('/:id', auth, async (req, res) => {
   try {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    if (!isValidUUID(req.params.id)) {
       return res.status(404).json({ success: false, message: 'Album not found' });
     }
 
-    const album = await Album.findOne({
-      _id: req.params.id,
-      ownerId: req.user._id
-    })
-      .populate('coverImageId', 'url title')
-      .lean();
+    const album = await prisma.album.findFirst({
+      where: { id: req.params.id, ownerId: req.user.id },
+      include: {
+        coverImage: { select: { id: true, url: true, title: true } },
+        _count: { select: { images: true } }
+      }
+    });
 
     if (!album) {
       return res.status(404).json({ success: false, message: 'Album not found' });
     }
-
-    const imageCount = await Image.countDocuments({
-      albumId: album._id,
-      ownerId: req.user._id
-    });
 
     res.json({
       success: true,
       data: {
         album: {
           ...album,
-          imageCount
+          imageCount: album._count.images,
+          _count: undefined
         }
       }
     });
@@ -193,6 +177,7 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
+// POST /api/albums - 创建相册
 router.post('/', auth, async (req, res) => {
   try {
     const { name, description } = req.body;
@@ -212,15 +197,19 @@ router.post('/', auth, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Album description must be 200 characters or fewer' });
     }
 
-    const existingAlbum = await Album.findOne({ ownerId: req.user._id, name: trimmedName });
+    const existingAlbum = await prisma.album.findFirst({
+      where: { ownerId: req.user.id, name: trimmedName }
+    });
     if (existingAlbum) {
       return res.status(409).json({ success: false, message: 'Album name already exists' });
     }
 
-    const album = await Album.create({
-      name: trimmedName,
-      description: trimmedDescription,
-      ownerId: req.user._id
+    const album = await prisma.album.create({
+      data: {
+        name: trimmedName,
+        description: trimmedDescription,
+        ownerId: req.user.id
+      }
     });
 
     res.status(201).json({
@@ -230,25 +219,31 @@ router.post('/', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('Failed to create album:', error);
-    if (error.code === 11000) {
+    if (error.code === 'P2002') {
       return res.status(409).json({ success: false, message: 'Album name already exists' });
     }
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 
+// PUT /api/albums/:id - 更新相册
 router.put('/:id', auth, async (req, res) => {
   try {
+    if (!isValidUUID(req.params.id)) {
+      return res.status(404).json({ success: false, message: 'Album not found' });
+    }
+
     const { name, description, coverImageId } = req.body;
 
-    const album = await Album.findOne({
-      _id: req.params.id,
-      ownerId: req.user._id
+    const album = await prisma.album.findFirst({
+      where: { id: req.params.id, ownerId: req.user.id }
     });
 
     if (!album) {
       return res.status(404).json({ success: false, message: 'Album not found' });
     }
+
+    const updateData = {};
 
     if (name !== undefined) {
       const trimmedName = name.trim();
@@ -258,15 +253,13 @@ router.put('/:id', auth, async (req, res) => {
       if (trimmedName.length > 50) {
         return res.status(400).json({ success: false, message: 'Album name must be 50 characters or fewer' });
       }
-      const duplicate = await Album.findOne({
-        ownerId: req.user._id,
-        name: trimmedName,
-        _id: { $ne: album._id }
+      const duplicate = await prisma.album.findFirst({
+        where: { ownerId: req.user.id, name: trimmedName, NOT: { id: album.id } }
       });
       if (duplicate) {
         return res.status(409).json({ success: false, message: 'Album name already exists' });
       }
-      album.name = trimmedName;
+      updateData.name = trimmedName;
     }
 
     if (description !== undefined) {
@@ -274,62 +267,71 @@ router.put('/:id', auth, async (req, res) => {
       if (trimmedDescription.length > 200) {
         return res.status(400).json({ success: false, message: 'Album description must be 200 characters or fewer' });
       }
-      album.description = trimmedDescription;
+      updateData.description = trimmedDescription;
     }
 
     if (coverImageId !== undefined) {
       if (!coverImageId) {
-        album.coverImageId = null;
+        updateData.coverImageId = null;
       } else {
-        const image = await Image.findOne({
-          _id: coverImageId,
-          ownerId: req.user._id
+        if (!isValidUUID(coverImageId)) {
+          return res.status(400).json({ success: false, message: 'Invalid cover image id' });
+        }
+        const image = await prisma.image.findFirst({
+          where: { id: coverImageId, ownerId: req.user.id }
         });
         if (!image) {
           return res.status(400).json({ success: false, message: 'Cover image not found or not owned by user' });
         }
-        if (image.albumId && image.albumId.toString() !== album._id.toString()) {
+        if (image.albumId && image.albumId !== album.id) {
           return res.status(400).json({ success: false, message: 'Image does not belong to this album' });
         }
-        album.coverImageId = image._id;
+        updateData.coverImageId = image.id;
       }
     }
 
-    await album.save();
-
-    const populated = await Album.findById(album._id).populate('coverImageId', 'url title');
+    const updatedAlbum = await prisma.album.update({
+      where: { id: album.id },
+      data: updateData,
+      include: { coverImage: { select: { id: true, url: true, title: true } } }
+    });
 
     res.json({
       success: true,
       message: 'Album updated successfully',
-      data: { album: populated }
+      data: { album: updatedAlbum }
     });
   } catch (error) {
     console.error('Failed to update album:', error);
-    if (error.code === 11000) {
+    if (error.code === 'P2002') {
       return res.status(409).json({ success: false, message: 'Album name already exists' });
     }
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 
+// DELETE /api/albums/:id - 删除相册
 router.delete('/:id', auth, async (req, res) => {
   try {
-    const album = await Album.findOne({
-      _id: req.params.id,
-      ownerId: req.user._id
+    if (!isValidUUID(req.params.id)) {
+      return res.status(404).json({ success: false, message: 'Album not found' });
+    }
+
+    const album = await prisma.album.findFirst({
+      where: { id: req.params.id, ownerId: req.user.id }
     });
 
     if (!album) {
       return res.status(404).json({ success: false, message: 'Album not found' });
     }
 
-    await Image.updateMany(
-      { albumId: album._id, ownerId: req.user._id },
-      { $set: { albumId: null } }
-    );
+    // 将相册内图片的 albumId 设为 null
+    await prisma.image.updateMany({
+      where: { albumId: album.id, ownerId: req.user.id },
+      data: { albumId: null }
+    });
 
-    await Album.deleteOne({ _id: album._id });
+    await prisma.album.delete({ where: { id: album.id } });
 
     res.json({
       success: true,
@@ -341,13 +343,17 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
+// POST /api/albums/:id/cover - 设置相册封面
 router.post('/:id/cover', auth, async (req, res) => {
   try {
+    if (!isValidUUID(req.params.id)) {
+      return res.status(404).json({ success: false, message: 'Album not found' });
+    }
+
     const { imageId } = req.body;
 
-    const album = await Album.findOne({
-      _id: req.params.id,
-      ownerId: req.user._id
+    const album = await prisma.album.findFirst({
+      where: { id: req.params.id, ownerId: req.user.id }
     });
 
     if (!album) {
@@ -355,33 +361,35 @@ router.post('/:id/cover', auth, async (req, res) => {
     }
 
     if (!imageId) {
-      album.coverImageId = null;
-      await album.save();
-      const populated = await Album.findById(album._id).populate('coverImageId', 'url title');
+      const updatedAlbum = await prisma.album.update({
+        where: { id: album.id },
+        data: { coverImageId: null },
+        include: { coverImage: { select: { id: true, url: true, title: true } } }
+      });
       return res.json({
         success: true,
         message: 'Album cover cleared',
-        data: { album: populated }
+        data: { album: updatedAlbum }
       });
     }
 
-    const image = await Image.findOne({
-      _id: imageId,
-      albumId: album._id,
-      ownerId: req.user._id
+    if (!isValidUUID(imageId)) {
+      return res.status(400).json({ success: false, message: 'Invalid image id' });
+    }
+
+    const image = await prisma.image.findFirst({
+      where: { id: imageId, albumId: album.id, ownerId: req.user.id }
     });
 
     if (!image) {
-      return res.status(404).json({
-        success: false,
-        message: 'Image not found in this album'
-      });
+      return res.status(404).json({ success: false, message: 'Image not found in this album' });
     }
 
-    album.coverImageId = imageId;
-    await album.save();
-
-    const updatedAlbum = await Album.findById(album._id).populate('coverImageId', 'url title');
+    const updatedAlbum = await prisma.album.update({
+      where: { id: album.id },
+      data: { coverImageId: imageId },
+      include: { coverImage: { select: { id: true, url: true, title: true } } }
+    });
 
     res.json({
       success: true,
@@ -395,9 +403,4 @@ router.post('/:id/cover', auth, async (req, res) => {
 });
 
 module.exports = router;
-
-
-
-
-
 

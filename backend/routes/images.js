@@ -1,9 +1,7 @@
-﻿const express = require('express');
-const mongoose = require('mongoose');
+const express = require('express');
 const { auth } = require('../middleware/auth');
 const { uploadSingle, handleUploadError } = require('../middleware/upload');
-const Image = require('../../models/Image');
-const Album = require('../../models/Album');
+const prisma = require('../../config/prisma');
 const fs = require('fs');
 const path = require('path');
 
@@ -28,178 +26,182 @@ const parsePagination = (query) => {
   return { page, limit };
 };
 
+// 验证 UUID 格式
+const isValidUUID = (str) => {
+  if (!str) return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+};
+
+// 确保相册封面完整性
 const ensureAlbumCoverIntegrity = async (albumId) => {
   if (!albumId) return;
-  const album = await Album.findById(albumId);
+  const album = await prisma.album.findUnique({ where: { id: albumId } });
   if (!album) return;
 
   if (album.coverImageId) {
-    const exists = await Image.exists({
-      _id: album.coverImageId,
-      albumId: album._id
+    const exists = await prisma.image.findFirst({
+      where: { id: album.coverImageId, albumId: album.id }
     });
-    if (exists) {
-      return;
-    }
+    if (exists) return;
   }
 
-  const fallback = await Image.findOne({ albumId: album._id })
-    .sort({ createdAt: -1 })
-    .select('_id');
+  const fallback = await prisma.image.findFirst({
+    where: { albumId: album.id },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true }
+  });
 
-  album.coverImageId = fallback ? fallback._id : null;
-  await album.save();
+  await prisma.album.update({
+    where: { id: albumId },
+    data: { coverImageId: fallback ? fallback.id : null }
+  });
 };
 
+// 确保相册有封面
 const ensureAlbumCoverPresence = async (albumId, candidateImageId) => {
   if (!albumId) return;
-  const album = await Album.findById(albumId);
+  const album = await prisma.album.findUnique({ where: { id: albumId } });
   if (!album) return;
 
   if (!album.coverImageId) {
-    album.coverImageId = candidateImageId || null;
-    await album.save();
+    await prisma.album.update({
+      where: { id: albumId },
+      data: { coverImageId: candidateImageId || null }
+    });
     return;
   }
 
-  const exists = await Image.exists({ _id: album.coverImageId, albumId: album._id });
+  const exists = await prisma.image.findFirst({
+    where: { id: album.coverImageId, albumId: album.id }
+  });
   if (!exists) {
-    const fallback = await Image.findOne({ albumId: album._id })
-      .sort({ createdAt: -1 })
-      .select('_id');
-    album.coverImageId = fallback ? fallback._id : null;
-    await album.save();
+    const fallback = await prisma.image.findFirst({
+      where: { albumId: album.id },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true }
+    });
+    await prisma.album.update({
+      where: { id: albumId },
+      data: { coverImageId: fallback ? fallback.id : null }
+    });
   }
-};
-
-const normalizeObjectIdArray = (ids) => {
-  if (!Array.isArray(ids)) return [];
-  return ids
-    .map((id) => {
-      try {
-        return new mongoose.Types.ObjectId(id);
-      } catch (error) {
-        return null;
-      }
-    })
-    .filter(Boolean);
 };
 
 // GET /api/images - list images with pagination / filters
 router.get('/', auth, async (req, res) => {
   try {
-    const {
-      tag,
-      search,
-      albumId,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = req.query;
-
+    const { tag, search, albumId, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
     const { page, limit } = parsePagination(req.query);
 
-    const query = { ownerId: req.user._id };
+    const where = { ownerId: req.user.id };
 
     if (tag) {
-      query.tags = { $in: [tag] };
+      where.tags = { has: tag };
     }
 
     if (search && search.trim()) {
       const keyword = search.trim();
-      query.$or = [
-        { title: { $regex: keyword, $options: 'i' } },
-        { description: { $regex: keyword, $options: 'i' } },
-        { tags: { $in: [new RegExp(keyword, 'i')] } }
+      where.OR = [
+        { title: { contains: keyword, mode: 'insensitive' } },
+        { description: { contains: keyword, mode: 'insensitive' } },
+        { tags: { has: keyword } }
       ];
     }
 
     if (albumId) {
-      if (!mongoose.Types.ObjectId.isValid(albumId)) {
+      if (!isValidUUID(albumId)) {
         return res.status(400).json({ success: false, message: 'Invalid album id' });
       }
-      query.albumId = albumId;
+      where.albumId = albumId;
     }
 
     const allowedSortFields = ['createdAt', 'updatedAt', 'title'];
     const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
-    const sortDirection = sortOrder === 'asc' ? 1 : -1;
-    const sort = { [sortField]: sortDirection };
+    const orderBy = [{ [sortField]: sortOrder === 'asc' ? 'asc' : 'desc' }];
     if (sortField !== 'createdAt') {
-      sort.createdAt = -1;
+      orderBy.push({ createdAt: 'desc' });
     }
 
     const [images, total] = await Promise.all([
-      Image.find(query)
-        .sort(sort)
-        .limit(limit)
-        .skip((page - 1) * limit)
-        .populate('albumId', 'name')
-        .exec(),
-      Image.countDocuments(query)
+      prisma.image.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { album: { select: { id: true, name: true } } }
+      }),
+      prisma.image.count({ where })
     ]);
+
+    // 转换格式以保持 API 兼容
+    const formattedImages = images.map(img => ({
+      ...img,
+      albumId: img.album ? { _id: img.album.id, name: img.album.name } : null
+    }));
 
     res.json({
       success: true,
       data: {
-        images,
+        images: formattedImages,
         pagination: {
           current: page,
           pages: Math.ceil(total / limit) || 1,
           total,
           limit
-        },
-      },
+        }
+      }
     });
   } catch (error) {
     console.error('Failed to fetch image list:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-    });
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 
 // GET /api/images/tags/all - fetch tag statistics
 router.get('/tags/all', auth, async (req, res) => {
   try {
-    const tags = await Image.aggregate([
-      { $match: { ownerId: req.user._id } },
-      { $unwind: '$tags' },
-      { $group: { _id: '$tags', count: { $sum: 1 } } },
-      { $sort: { count: -1 } }
-    ]);
+    const images = await prisma.image.findMany({
+      where: { ownerId: req.user.id },
+      select: { tags: true }
+    });
+
+    // 统计标签
+    const tagCounts = {};
+    images.forEach(img => {
+      img.tags.forEach(tag => {
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+      });
+    });
+
+    const tags = Object.entries(tagCounts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
 
     res.json({
       success: true,
-      data: {
-        tags: tags.map(tag => ({
-          name: tag._id,
-          count: tag.count
-        }))
-      }
+      data: { tags }
     });
   } catch (error) {
     console.error('Failed to fetch tag statistics:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error'
-    });
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 
 // GET /api/images/:id - image detail
 router.get('/:id', auth, async (req, res) => {
   try {
-    const image = await Image.findOne({
-      _id: req.params.id,
-      ownerId: req.user._id
-    }).populate('albumId', 'name description');
+    if (!isValidUUID(req.params.id)) {
+      return res.status(404).json({ success: false, message: 'Image not found' });
+    }
+
+    const image = await prisma.image.findFirst({
+      where: { id: req.params.id, ownerId: req.user.id },
+      include: { album: { select: { id: true, name: true, description: true } } }
+    });
 
     if (!image) {
-      return res.status(404).json({
-        success: false,
-        message: 'Image not found'
-      });
+      return res.status(404).json({ success: false, message: 'Image not found' });
     }
 
     res.json({
@@ -208,10 +210,7 @@ router.get('/:id', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('Failed to fetch image detail:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error'
-    });
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 
@@ -219,175 +218,148 @@ router.get('/:id', auth, async (req, res) => {
 router.post('/', auth, uploadSingle, handleUploadError, async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please select an image file to upload'
-      });
+      return res.status(400).json({ success: false, message: 'Please select an image file to upload' });
     }
 
     const { title, description, tags, albumId } = req.body;
 
     if (!title) {
-      return res.status(400).json({
-        success: false,
-        message: 'Image title is required'
-      });
+      return res.status(400).json({ success: false, message: 'Image title is required' });
     }
 
-    let targetAlbum = null;
+    let targetAlbumId = null;
     if (albumId) {
-      if (!mongoose.Types.ObjectId.isValid(albumId)) {
+      if (!isValidUUID(albumId)) {
         return res.status(400).json({ success: false, message: 'Invalid album id' });
       }
 
-      targetAlbum = await Album.findOne({
-        _id: albumId,
-        ownerId: req.user._id
+      const targetAlbum = await prisma.album.findFirst({
+        where: { id: albumId, ownerId: req.user.id }
       });
 
       if (!targetAlbum) {
-        return res.status(400).json({
-          success: false,
-          message: 'Album not found'
-        });
+        return res.status(400).json({ success: false, message: 'Album not found' });
       }
+      targetAlbumId = targetAlbum.id;
     }
 
     let tagsArray = [];
     if (tags) {
       if (Array.isArray(tags)) {
-        tagsArray = tags.map((tag) => tag.trim()).filter(Boolean);
+        tagsArray = tags.map(tag => tag.trim()).filter(Boolean);
       } else {
-        tagsArray = String(tags)
-          .split(',')
-          .map((tag) => tag.trim())
-          .filter(Boolean);
+        tagsArray = String(tags).split(',').map(tag => tag.trim()).filter(Boolean);
       }
     }
 
-    const assignedAlbumId = targetAlbum ? targetAlbum._id : null;
-
-    const image = new Image({
-      url: `/uploads/${req.file.filename}`,
-      originalName: req.file.originalname,
-      title: title.trim(),
-      description: description ? description.trim() : '',
-      tags: tagsArray,
-      ownerId: req.user._id,
-      albumId: assignedAlbumId
+    const image = await prisma.image.create({
+      data: {
+        url: `/uploads/${req.file.filename}`,
+        originalName: req.file.originalname,
+        title: title.trim(),
+        description: description ? description.trim() : '',
+        tags: tagsArray,
+        ownerId: req.user.id,
+        albumId: targetAlbumId
+      },
+      include: { album: { select: { id: true, name: true } } }
     });
 
-    await image.save();
-
-    if (assignedAlbumId) {
-      await ensureAlbumCoverPresence(assignedAlbumId.toString(), image._id);
+    if (targetAlbumId) {
+      await ensureAlbumCoverPresence(targetAlbumId, image.id);
     }
-
-    const populatedImage = await Image.findById(image._id).populate('albumId', 'name');
 
     res.status(201).json({
       success: true,
       message: 'Image uploaded successfully',
-      data: { image: populatedImage }
+      data: { image }
     });
   } catch (error) {
     console.error('Failed to upload image:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error'
-    });
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 
 // PUT /api/images/:id - update image info
 router.put('/:id', auth, async (req, res) => {
   try {
+    if (!isValidUUID(req.params.id)) {
+      return res.status(404).json({ success: false, message: 'Image not found' });
+    }
+
     const { title, description, tags, albumId } = req.body;
 
-    const image = await Image.findOne({
-      _id: req.params.id,
-      ownerId: req.user._id
+    const image = await prisma.image.findFirst({
+      where: { id: req.params.id, ownerId: req.user.id }
     });
 
     if (!image) {
-      return res.status(404).json({
-        success: false,
-        message: 'Image not found',
-      });
+      return res.status(404).json({ success: false, message: 'Image not found' });
     }
 
-    const previousAlbumId = image.albumId ? image.albumId.toString() : null;
-    let nextAlbumId = previousAlbumId;
+    const previousAlbumId = image.albumId;
+    const updateData = {};
 
     if (title) {
-      image.title = title.trim();
+      updateData.title = title.trim();
     }
 
     if (description !== undefined) {
-      image.description = description ? description.trim() : '';
+      updateData.description = description ? description.trim() : '';
     }
 
     if (tags !== undefined) {
       let tagsArray = [];
       if (Array.isArray(tags)) {
-        tagsArray = tags.map((tag) => tag.trim()).filter(Boolean);
+        tagsArray = tags.map(tag => tag.trim()).filter(Boolean);
       } else if (tags) {
-        tagsArray = String(tags)
-          .split(',')
-          .map((tag) => tag.trim())
-          .filter(Boolean);
+        tagsArray = String(tags).split(',').map(tag => tag.trim()).filter(Boolean);
       }
-      image.tags = tagsArray;
+      updateData.tags = tagsArray;
     }
 
+    let nextAlbumId = previousAlbumId;
     if (albumId !== undefined) {
       if (!albumId) {
-        image.albumId = null;
+        updateData.albumId = null;
         nextAlbumId = null;
       } else {
-        if (!mongoose.Types.ObjectId.isValid(albumId)) {
+        if (!isValidUUID(albumId)) {
           return res.status(400).json({ success: false, message: 'Invalid album id' });
         }
-        const album = await Album.findOne({
-          _id: albumId,
-          ownerId: req.user._id,
+        const album = await prisma.album.findFirst({
+          where: { id: albumId, ownerId: req.user.id }
         });
-
         if (!album) {
-          return res.status(400).json({
-            success: false,
-            message: 'Album not found',
-          });
+          return res.status(400).json({ success: false, message: 'Album not found' });
         }
-
-        image.albumId = album._id;
-        nextAlbumId = album._id.toString();
+        updateData.albumId = album.id;
+        nextAlbumId = album.id;
       }
     }
 
-    await image.save();
+    const updatedImage = await prisma.image.update({
+      where: { id: req.params.id },
+      data: updateData,
+      include: { album: { select: { id: true, name: true } } }
+    });
 
     if (previousAlbumId && previousAlbumId !== nextAlbumId) {
       await ensureAlbumCoverIntegrity(previousAlbumId);
     }
 
     if (nextAlbumId) {
-      await ensureAlbumCoverPresence(nextAlbumId, image._id);
+      await ensureAlbumCoverPresence(nextAlbumId, updatedImage.id);
     }
-
-    const populatedImage = await Image.findById(image._id).populate('albumId', 'name');
 
     res.json({
       success: true,
       message: 'Image updated successfully',
-      data: { image: populatedImage },
+      data: { image: updatedImage }
     });
   } catch (error) {
     console.error('Failed to update image:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-    });
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 
@@ -395,49 +367,44 @@ router.put('/:id', auth, async (req, res) => {
 router.post('/bulk/move', auth, async (req, res) => {
   try {
     const { imageIds, targetAlbumId } = req.body;
-    const normalizedIds = normalizeObjectIdArray(imageIds);
 
-    if (!normalizedIds.length) {
+    if (!Array.isArray(imageIds) || imageIds.length === 0) {
       return res.status(400).json({ success: false, message: 'Image ids are required' });
     }
 
-    const images = await Image.find({
-      _id: { $in: normalizedIds },
-      ownerId: req.user._id,
+    const validIds = imageIds.filter(id => isValidUUID(id));
+    if (validIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid image ids provided' });
+    }
+
+    const images = await prisma.image.findMany({
+      where: { id: { in: validIds }, ownerId: req.user.id }
     });
 
-    if (!images.length) {
+    if (images.length === 0) {
       return res.status(404).json({ success: false, message: 'No images found for the given ids' });
     }
 
-    const previousAlbumIds = [...new Set(images
-      .map((img) => (img.albumId ? img.albumId.toString() : null))
-      .filter((id) => Boolean(id))
-    )];
+    const previousAlbumIds = [...new Set(images.map(img => img.albumId).filter(Boolean))];
 
     let nextAlbumId = null;
-    let targetAlbum = null;
-
     if (targetAlbumId) {
-      if (!mongoose.Types.ObjectId.isValid(targetAlbumId)) {
+      if (!isValidUUID(targetAlbumId)) {
         return res.status(400).json({ success: false, message: 'Invalid album id' });
       }
-      targetAlbum = await Album.findOne({
-        _id: targetAlbumId,
-        ownerId: req.user._id,
+      const targetAlbum = await prisma.album.findFirst({
+        where: { id: targetAlbumId, ownerId: req.user.id }
       });
-
       if (!targetAlbum) {
         return res.status(404).json({ success: false, message: 'Target album not found' });
       }
-
-      nextAlbumId = targetAlbum._id.toString();
+      nextAlbumId = targetAlbum.id;
     }
 
-    await Image.updateMany(
-      { _id: { $in: normalizedIds }, ownerId: req.user._id },
-      { $set: { albumId: targetAlbum ? targetAlbum._id : null } }
-    );
+    await prisma.image.updateMany({
+      where: { id: { in: validIds }, ownerId: req.user.id },
+      data: { albumId: nextAlbumId }
+    });
 
     for (const albumId of previousAlbumIds) {
       if (!nextAlbumId || albumId !== nextAlbumId) {
@@ -446,52 +413,55 @@ router.post('/bulk/move', auth, async (req, res) => {
     }
 
     if (nextAlbumId) {
-      await ensureAlbumCoverPresence(nextAlbumId, normalizedIds[0]);
+      await ensureAlbumCoverPresence(nextAlbumId, validIds[0]);
     }
 
     res.json({
       success: true,
-      message: nextAlbumId ? 'Images moved to album successfully' : 'Images removed from album successfully',
+      message: nextAlbumId ? 'Images moved to album successfully' : 'Images removed from album successfully'
     });
   } catch (error) {
     console.error('Failed to move images:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
+
 // DELETE /api/images/:id - delete image
 router.delete('/:id', auth, async (req, res) => {
   try {
-    const image = await Image.findOne({
-      _id: req.params.id,
-      ownerId: req.user._id
+    if (!isValidUUID(req.params.id)) {
+      return res.status(404).json({ success: false, message: 'Image not found' });
+    }
+
+    const image = await prisma.image.findFirst({
+      where: { id: req.params.id, ownerId: req.user.id }
     });
 
     if (!image) {
-      return res.status(404).json({
-        success: false,
-        message: 'Image not found'
-      });
+      return res.status(404).json({ success: false, message: 'Image not found' });
     }
 
+    // 删除文件
     const imagePath = resolveUploadsFilePath(image.url);
     if (imagePath && fs.existsSync(imagePath)) {
       fs.unlinkSync(imagePath);
     }
 
+    // 处理相册封面
     if (image.albumId) {
-      const album = await Album.findById(image.albumId);
-      if (album && album.coverImageId && album.coverImageId.toString() === image._id.toString()) {
-        const anotherImage = await Image.findOne({
-          albumId: image.albumId,
-          _id: { $ne: image._id }
+      const album = await prisma.album.findUnique({ where: { id: image.albumId } });
+      if (album && album.coverImageId === image.id) {
+        const anotherImage = await prisma.image.findFirst({
+          where: { albumId: image.albumId, id: { not: image.id } }
         });
-
-        album.coverImageId = anotherImage ? anotherImage._id : null;
-        await album.save();
+        await prisma.album.update({
+          where: { id: image.albumId },
+          data: { coverImageId: anotherImage ? anotherImage.id : null }
+        });
       }
     }
 
-    await Image.findByIdAndDelete(image._id);
+    await prisma.image.delete({ where: { id: image.id } });
 
     res.json({
       success: true,
@@ -499,15 +469,9 @@ router.delete('/:id', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('Failed to delete image:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error'
-    });
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 
 module.exports = router;
-
-
-
 

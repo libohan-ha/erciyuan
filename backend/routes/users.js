@@ -2,7 +2,7 @@
 const bcrypt = require('bcryptjs');
 const { auth } = require('../middleware/auth');
 const { uploadSingle, handleUploadError } = require('../middleware/upload');
-const User = require('../../models/User');
+const prisma = require('../../config/prisma');
 const fs = require('fs');
 const path = require('path');
 
@@ -27,7 +27,7 @@ router.get('/me', auth, async (req, res) => {
       success: true,
       data: {
         user: {
-          id: req.user._id,
+          id: req.user.id,
           username: req.user.username,
           avatarUrl: req.user.avatarUrl,
           createdAt: req.user.createdAt
@@ -44,7 +44,7 @@ router.get('/me', auth, async (req, res) => {
 router.put('/me', auth, async (req, res) => {
   try {
     const { username, currentPassword, newPassword } = req.body;
-    const user = req.user;
+    const userId = req.user.id;
 
     if (!username || !username.trim()) {
       return res.status(400).json({ success: false, message: 'Username is required' });
@@ -54,12 +54,19 @@ router.put('/me', auth, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Username must be at least 3 characters' });
     }
 
-    if (username.trim() !== user.username) {
-      const existingUser = await User.findOne({ username: username.trim(), _id: { $ne: user._id } });
+    const updateData = {};
+
+    if (username.trim() !== req.user.username) {
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          username: username.trim(),
+          NOT: { id: userId }
+        }
+      });
       if (existingUser) {
         return res.status(400).json({ success: false, message: 'Username already exists' });
       }
-      user.username = username.trim();
+      updateData.username = username.trim();
     }
 
     if (newPassword) {
@@ -71,26 +78,36 @@ router.put('/me', auth, async (req, res) => {
         return res.status(400).json({ success: false, message: 'New password must be at least 6 characters' });
       }
 
-      const isValid = await user.comparePassword(currentPassword);
+      // 获取用户密码进行验证
+      const userWithPassword = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+
+      const isValid = await bcrypt.compare(currentPassword, userWithPassword.password);
       if (!isValid) {
         return res.status(400).json({ success: false, message: 'Current password is incorrect' });
       }
 
-      user.password = newPassword;
+      const salt = await bcrypt.genSalt(10);
+      updateData.password = await bcrypt.hash(newPassword, salt);
     }
 
-    await user.save();
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: updateData,
+      select: {
+        id: true,
+        username: true,
+        avatarUrl: true,
+        updatedAt: true
+      }
+    });
 
     res.json({
       success: true,
       message: 'Profile updated successfully',
       data: {
-        user: {
-          id: user._id,
-          username: user.username,
-          avatarUrl: user.avatarUrl,
-          updatedAt: user.updatedAt
-        }
+        user: updatedUser
       }
     });
   } catch (error) {
@@ -106,22 +123,26 @@ router.post('/me/avatar', auth, uploadSingle, handleUploadError, async (req, res
       return res.status(400).json({ success: false, message: 'Please provide an image file' });
     }
 
-    const user = req.user;
+    const userId = req.user.id;
 
-    if (user.avatarUrl) {
-      const oldAvatarPath = resolveUploadsFilePath(user.avatarUrl);
+    // 删除旧头像文件
+    if (req.user.avatarUrl) {
+      const oldAvatarPath = resolveUploadsFilePath(req.user.avatarUrl);
       if (oldAvatarPath && fs.existsSync(oldAvatarPath)) {
         fs.unlinkSync(oldAvatarPath);
       }
     }
 
-    user.avatarUrl = `/uploads/${req.file.filename}`;
-    await user.save();
+    const avatarUrl = `/uploads/${req.file.filename}`;
+    await prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl }
+    });
 
     res.json({
       success: true,
       message: 'Avatar updated successfully',
-      data: { avatarUrl: user.avatarUrl }
+      data: { avatarUrl }
     });
   } catch (error) {
     console.error('Failed to update avatar:', error);
@@ -132,19 +153,21 @@ router.post('/me/avatar', auth, uploadSingle, handleUploadError, async (req, res
 // DELETE /api/users/me/avatar
 router.delete('/me/avatar', auth, async (req, res) => {
   try {
-    const user = req.user;
+    const userId = req.user.id;
 
-    if (!user.avatarUrl) {
+    if (!req.user.avatarUrl) {
       return res.status(400).json({ success: false, message: 'Avatar not set' });
     }
 
-    const avatarPath = resolveUploadsFilePath(user.avatarUrl);
+    const avatarPath = resolveUploadsFilePath(req.user.avatarUrl);
     if (avatarPath && fs.existsSync(avatarPath)) {
       fs.unlinkSync(avatarPath);
     }
 
-    user.avatarUrl = null;
-    await user.save();
+    await prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl: null }
+    });
 
     res.json({ success: true, message: 'Avatar removed successfully' });
   } catch (error) {

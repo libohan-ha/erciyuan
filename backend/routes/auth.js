@@ -1,6 +1,7 @@
 ﻿const express = require('express');
 const jwt = require('jsonwebtoken');
-const User = require('../../models/User');
+const bcrypt = require('bcryptjs');
+const prisma = require('../../config/prisma');
 const { auth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -22,16 +23,24 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
     }
 
-    const existingUser = await User.findOne({ username });
+    const existingUser = await prisma.user.findUnique({ where: { username } });
     if (existingUser) {
       return res.status(400).json({ success: false, message: 'Username already exists' });
     }
 
-    const user = new User({ username, password });
-    await user.save();
+    // 加密密码
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    const user = await prisma.user.create({
+      data: {
+        username,
+        password: hashedPassword
+      }
+    });
 
     const token = jwt.sign(
-      { userId: user._id },
+      { userId: user.id },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
@@ -41,7 +50,7 @@ router.post('/register', async (req, res) => {
       message: 'Registered successfully',
       data: {
         user: {
-          id: user._id,
+          id: user.id,
           username: user.username,
           avatarUrl: user.avatarUrl,
           createdAt: user.createdAt
@@ -64,18 +73,18 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Username and password are required' });
     }
 
-    const user = await User.findOne({ username });
+    const user = await prisma.user.findUnique({ where: { username } });
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid username or password' });
     }
 
-    const isValid = await user.comparePassword(password);
+    const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
       return res.status(401).json({ success: false, message: 'Invalid username or password' });
     }
 
     const token = jwt.sign(
-      { userId: user._id },
+      { userId: user.id },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
@@ -85,7 +94,7 @@ router.post('/login', async (req, res) => {
       message: 'Login successful',
       data: {
         user: {
-          id: user._id,
+          id: user.id,
           username: user.username,
           avatarUrl: user.avatarUrl,
           createdAt: user.createdAt
@@ -107,7 +116,7 @@ router.get('/verify', auth, async (req, res) => {
       message: 'Token is valid',
       data: {
         user: {
-          id: req.user._id,
+          id: req.user.id,
           username: req.user.username,
           avatarUrl: req.user.avatarUrl,
           createdAt: req.user.createdAt

@@ -227,6 +227,8 @@ export default class RegisterPage {
   setLoading(loading) {
     this.isLoading = loading;
 
+    if (!this.form) return;
+
     const submitButton = DOMHelper.find('button[type="submit"]', this.form);
     if (!submitButton) return;
 

@@ -1,5 +1,5 @@
 ﻿const jwt = require('jsonwebtoken');
-const User = require('../../models/User');
+const prisma = require('../../config/prisma');
 
 const auth = async (req, res, next) => {
   try {
@@ -15,7 +15,16 @@ const auth = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.userId).select('-password');
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: {
+        id: true,
+        username: true,
+        avatarUrl: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
 
     if (!user) {
       return res.status(401).json({ success: false, message: 'User not found' });
@@ -46,7 +55,16 @@ const optionalAuth = async (req, res, next) => {
 
       try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findById(decoded.userId).select('-password');
+        const user = await prisma.user.findUnique({
+          where: { id: decoded.userId },
+          select: {
+            id: true,
+            username: true,
+            avatarUrl: true,
+            createdAt: true,
+            updatedAt: true
+          }
+        });
 
         if (user) {
           req.user = user;
